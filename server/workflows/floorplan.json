@@ -1,0 +1,53 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {"ckpt_name": "realvisxlV50_v50LightningBakedvae.safetensors"}
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "top-down view, 2D interior design floor plan rendering, colored walls, wooden floor, furniture layout, professional plan illustration", "clip": ["1", 1]}
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "perspective, 3d view, photorealistic interior, blurry", "clip": ["1", 1]}
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "input.png", "upload": true}
+  },
+  "11": {
+    "class_type": "ControlNetLoader",
+    "inputs": {"control_net_name": "mistoline_sdxl_fp16.safetensors"}
+  },
+  "12": {
+    "class_type": "ControlNetApplyAdvanced",
+    "inputs": {
+      "positive": ["3", 0], "negative": ["4", 0], "control_net": ["11", 0],
+      "image": ["10", 0], "strength": 0.85, "start_percent": 0.0, "end_percent": 1.0
+    }
+  },
+  "13": {
+    "class_type": "VAEEncode",
+    "inputs": {"pixels": ["10", 0], "vae": ["1", 2]}
+  },
+  "14": {
+    "class_type": "RepeatLatentBatch",
+    "inputs": {"samples": ["13", 0], "amount": 1}
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 0, "steps": 8, "cfg": 2.0, "sampler_name": "euler", "scheduler": "sgm_uniform",
+      "denoise": 0.85, "model": ["1", 0], "positive": ["12", 0], "negative": ["12", 1],
+      "latent_image": ["14", 0]
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {"filename_prefix": "rvx/floorplan", "images": ["6", 0]}
+  }
+}

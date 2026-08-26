@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 运行时数据
+data/
+server/*.db
+server/.env
+*.log
+
+# 前端
+web/node_modules/
+web/dist/
+*.tsbuildinfo
+
+# ComfyUI 便携包与模型（另行管理）
+ComfyUI_windows_portable/
+comfyui_portable.7z
+.dlparts/
+.wheels/
+7zr.exe
+*.safetensors
+*.ckpt
+
+# 会话/编辑器
+.zcode/
+.idea/
+.vscode/

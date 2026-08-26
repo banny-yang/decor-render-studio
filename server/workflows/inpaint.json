@@ -1,0 +1,46 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {"ckpt_name": "realvisxlV50_v50LightningBakedvae.safetensors"}
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "modern minimalist living room, photorealistic, 8k", "clip": ["1", 1]}
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "lowres, bad quality, watermark", "clip": ["1", 1]}
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "input.png", "upload": true}
+  },
+  "11": {
+    "class_type": "LoadImageMask",
+    "inputs": {"image": "mask.png", "channel": "red"}
+  },
+  "17": {
+    "class_type": "GrowMask",
+    "inputs": {"mask": ["11", 0], "expand": 6, "tapered_corners": true}
+  },
+  "12": {
+    "class_type": "VAEEncodeForInpaint",
+    "inputs": {"pixels": ["10", 0], "vae": ["1", 2], "mask": ["17", 0], "grow_mask_by": 0}
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 0, "steps": 6, "cfg": 1.5, "sampler_name": "euler", "scheduler": "sgm_uniform",
+      "denoise": 1.0, "model": ["1", 0], "positive": ["3", 0], "negative": ["4", 0],
+      "latent_image": ["12", 0]
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {"filename_prefix": "rvx/inpaint", "images": ["6", 0]}
+  }
+}

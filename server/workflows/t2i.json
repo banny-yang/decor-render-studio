@@ -1,0 +1,34 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {"ckpt_name": "realvisxlV50_v50LightningBakedvae.safetensors"}
+  },
+  "2": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {"width": 1024, "height": 768, "batch_size": 4}
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "modern minimalist living room, photorealistic, 8k", "clip": ["1", 1]}
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "lowres, bad quality, watermark", "clip": ["1", 1]}
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 0, "steps": 6, "cfg": 1.5, "sampler_name": "euler", "scheduler": "sgm_uniform",
+      "denoise": 1.0, "model": ["1", 0], "positive": ["3", 0], "negative": ["4", 0],
+      "latent_image": ["2", 0]
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {"filename_prefix": "rvx/t2i", "images": ["6", 0]}
+  }
+}
