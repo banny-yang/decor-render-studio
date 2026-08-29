@@ -47,7 +47,8 @@ def _params_dict(data: TaskCreateIn, positive: str, negative: str, tparams: dict
     线稿→效果图实测调优：denoise 1.0 + ControlNet 0.75 + steps 8 + cfg 2.0
     （denoise 低于 1.0 会残留线稿白色底，出图偏平面）。
     """
-    default_denoise = {"t2i": 1.0, "inpaint": 1.0, "floorplan": 0.85}.get(data.mode, 0.85)
+    default_denoise = {"t2i": 1.0, "inpaint": 1.0, "floorplan": 0.85,
+                       "renovate": 0.85}.get(data.mode, 0.85)
     default_strength = 0.85 if data.mode == "floorplan" else 0.75
     p = {
         "positive": positive,
@@ -99,8 +100,8 @@ async def create_task(db, user_id: int | None, data: TaskCreateIn) -> Task:
     db.commit()
     db.refresh(task)
 
-    # img2img / inpaint 需要输入图
-    if data.mode in ("img2img", "inpaint") and data.input_asset_id:
+    # 有输入图的模式：回链输入资产
+    if data.mode in ("img2img", "inpaint", "floorplan", "renovate") and data.input_asset_id:
         a = db.get(Asset, data.input_asset_id)
         if a:
             a.task_id = task.id
@@ -138,8 +139,24 @@ async def _submit_to_comfyui(task_id: int, data: TaskCreateIn):
         p = dict(task.params)
 
         # 输入图上传到 ComfyUI
-        input_name = mask_name = None
-        if data.mode in ("img2img", "inpaint", "floorplan"):
+        input_name = mask_name = ref_name = None
+
+        # refstyle：上传参考风格图（无结构线稿时按参考图宽高比定尺寸）
+        if data.mode == "refstyle":
+            if not data.ref_asset_id:
+                raise ValueError("参考图风格匹配必须提供参考图片")
+            from PIL import Image as _Img
+            ref = db.get(Asset, data.ref_asset_id)
+            rfile = settings.data_dir / ref.file_path
+            if not data.input_asset_id:
+                with _Img.open(rfile) as ri:
+                    ratio = ri.width / ri.height
+                p["width"], p["height"] = (1024, 768) if ratio >= 1.2 else \
+                    (768, 1024) if ratio <= 0.83 else (896, 896)
+            ref_name = await comfy_client.upload_image(rfile.read_bytes(),
+                                                       f"task{task_id}_ref.png")
+
+        if data.mode in ("img2img", "inpaint", "floorplan", "renovate"):
             asset = db.get(Asset, data.input_asset_id) if data.input_asset_id else None
             if asset is None:
                 raise ValueError("图生图/局部重绘必须提供输入图片")
@@ -153,7 +170,7 @@ async def _submit_to_comfyui(task_id: int, data: TaskCreateIn):
                 mask_name = await comfy_client.upload_image(mfile.read_bytes(), f"task{task_id}_mask.png")
 
         wf = build_workflow(data.mode, p, input_name=input_name, mask_name=mask_name,
-                            prefix=f"rvx/task{task_id}")
+                            prefix=f"rvx/task{task_id}", ref_name=ref_name)
         pid = await comfy_client.submit(wf)
         task.prompt_id = pid
         task.status = "queued"

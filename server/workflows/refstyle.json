@@ -1,0 +1,78 @@
+{
+  "1": {
+    "class_type": "CheckpointLoaderSimple",
+    "inputs": {"ckpt_name": "realvisxlV50_v50LightningBakedvae.safetensors"}
+  },
+  "3": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "interior design rendering, photorealistic, 8k", "clip": ["1", 1]}
+  },
+  "4": {
+    "class_type": "CLIPTextEncode",
+    "inputs": {"text": "lowres, bad quality, watermark", "clip": ["1", 1]}
+  },
+  "10": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "input.png", "upload": true}
+  },
+  "11": {
+    "class_type": "ControlNetLoader",
+    "inputs": {"control_net_name": "mistoline_sdxl_fp16.safetensors"}
+  },
+  "12": {
+    "class_type": "ControlNetApplyAdvanced",
+    "inputs": {
+      "positive": ["3", 0], "negative": ["4", 0], "control_net": ["11", 0],
+      "image": ["10", 0], "strength": 0.75, "start_percent": 0.0, "end_percent": 1.0
+    }
+  },
+  "15": {
+    "class_type": "IPAdapterModelLoader",
+    "inputs": {"ipadapter_file": "ip-adapter-plus_sdxl_vit-h.safetensors"}
+  },
+  "16": {
+    "class_type": "CLIPVisionLoader",
+    "inputs": {"clip_name": "CLIP-ViT-H-14.safetensors"}
+  },
+  "17": {
+    "class_type": "IPAdapterAdvanced",
+    "inputs": {
+      "model": ["1", 0], "ipadapter": ["15", 0], "clip_vision": ["16", 0],
+      "image": ["18", 0], "weight": 0.85, "weight_type": "style transfer",
+      "combine_embeds": "concat", "start_at": 0.0, "end_at": 1.0,
+      "embeds_scaling": "V only"
+    }
+  },
+  "18": {
+    "class_type": "LoadImage",
+    "inputs": {"image": "reference.png", "upload": true}
+  },
+  "2": {
+    "class_type": "EmptyLatentImage",
+    "inputs": {"width": 1024, "height": 768, "batch_size": 1}
+  },
+  "13": {
+    "class_type": "VAEEncode",
+    "inputs": {"pixels": ["10", 0], "vae": ["1", 2]}
+  },
+  "14": {
+    "class_type": "RepeatLatentBatch",
+    "inputs": {"samples": ["13", 0], "amount": 1}
+  },
+  "5": {
+    "class_type": "KSampler",
+    "inputs": {
+      "seed": 0, "steps": 8, "cfg": 2.0, "sampler_name": "euler", "scheduler": "sgm_uniform",
+      "denoise": 1.0, "model": ["17", 0], "positive": ["12", 0], "negative": ["12", 1],
+      "latent_image": ["14", 0]
+    }
+  },
+  "6": {
+    "class_type": "VAEDecode",
+    "inputs": {"samples": ["5", 0], "vae": ["1", 2]}
+  },
+  "7": {
+    "class_type": "SaveImage",
+    "inputs": {"filename_prefix": "rvx/refstyle", "images": ["6", 0]}
+  }
+}

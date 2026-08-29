@@ -6,6 +6,8 @@ import {
   FolderOutlined,
   LogoutOutlined,
   PictureFilled,
+  SwapOutlined,
+  TableOutlined,
   TagsOutlined,
 } from "@ant-design/icons";
 import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Typography } from "antd";
@@ -14,7 +16,10 @@ import { api, useAuth } from "./api";
 import CadPage from "./pages/CadPage";
 import FloorplanPage from "./pages/FloorplanPage";
 import Login from "./pages/Login";
+import MatrixPage from "./pages/MatrixPage";
 import Projects from "./pages/Projects";
+import RefStylePage from "./pages/RefStylePage";
+import RenovatePage from "./pages/RenovatePage";
 import Templates from "./pages/Templates";
 import Workbench from "./pages/Workbench";
 
@@ -55,6 +60,9 @@ function Shell({ children }: { children: React.ReactNode }) {
           items={[
             { key: "workbench", icon: <AppstoreOutlined />, label: "生图工作台" },
             { key: "floorplan", icon: <ApartmentOutlined />, label: "户型图分房生成" },
+            { key: "matrix", icon: <TableOutlined />, label: "方案矩阵" },
+            { key: "renovate", icon: <SwapOutlined />, label: "老房改造对比" },
+            { key: "refstyle", icon: <PictureFilled />, label: "参考图风格匹配" },
             { key: "projects", icon: <FolderOutlined />, label: "项目与历史" },
             { key: "templates", icon: <TagsOutlined />, label: "风格模板" },
             { key: "cad", icon: <FileTextOutlined />, label: "CAD 施工图" },
@@ -129,6 +137,15 @@ export default function App() {
         } />
         <Route path="/cad" element={
           <RequireAuth><Shell><CadPage /></Shell></RequireAuth>
+        } />
+        <Route path="/matrix" element={
+          <RequireAuth><Shell><MatrixPage /></Shell></RequireAuth>
+        } />
+        <Route path="/renovate" element={
+          <RequireAuth><Shell><RenovatePage /></Shell></RequireAuth>
+        } />
+        <Route path="/refstyle" element={
+          <RequireAuth><Shell><RefStylePage /></Shell></RequireAuth>
         } />
         <Route path="/floorplan" element={
           <RequireAuth><Shell><FloorplanPage /></Shell></RequireAuth>

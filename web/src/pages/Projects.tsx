@@ -1,4 +1,4 @@
-import { DeleteOutlined, EditOutlined, FolderAddOutlined } from "@ant-design/icons";
+import { DeleteOutlined, EditOutlined, FilePdfOutlined, FolderAddOutlined } from "@ant-design/icons";
 import {
   Button,
   Card,
@@ -96,12 +96,34 @@ export default function Projects() {
               render: (v: string) => new Date(v).toLocaleString("zh-CN"),
             },
             {
-              title: "操作", width: 130, render: (_: any, p: Project) => (
+              title: "操作", width: 200, render: (_: any, p: Project) => (
                 <Space onClick={(e) => e.stopPropagation()}>
                   <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(p)} />
                   <Popconfirm title={`删除项目“${p.name}”及其任务记录？`} onConfirm={() => remove(p)}>
                     <Button size="small" danger icon={<DeleteOutlined />} />
                   </Popconfirm>
+                  <Button size="small" icon={<FilePdfOutlined />}
+                    onClick={async () => {
+                      try {
+                        const list = await api.tasks({ project_id: p.id, limit: 100 });
+                        const ids = list.filter((t) => t.status === "done").map((t) => t.id);
+                        if (!ids.length) {
+                          message.info("该项目暂无已完成的生成任务");
+                          return;
+                        }
+                        message.loading({ content: "生成 PDF 中…", key: "pdf", duration: 0 });
+                        const a = await api.pdfProposal({
+                          title: p.name, customer: p.customer, project_id: p.id, task_ids: ids,
+                        });
+                        message.destroy("pdf");
+                        window.open(assetUrl(a.url), "_blank");
+                      } catch (e: any) {
+                        message.destroy("pdf");
+                        message.error(e.message || "导出失败");
+                      }
+                    }}>
+                    方案书
+                  </Button>
                 </Space>
               ),
             },

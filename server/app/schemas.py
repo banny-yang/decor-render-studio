@@ -65,13 +65,14 @@ class TemplateOut(BaseModel):
 
 # ---------- Task ----------
 class TaskCreateIn(BaseModel):
-    mode: str = Field(pattern="^(t2i|img2img|inpaint|floorplan)$")
+    mode: str = Field(pattern="^(t2i|img2img|inpaint|floorplan|renovate|refstyle)$")
     project_id: int | None = None
     template_id: int | None = None
     prompt: str = ""
     negative_prompt: str = ""
-    input_asset_id: int | None = None   # img2img / inpaint 输入图
+    input_asset_id: int | None = None   # img2img / inpaint / floorplan / renovate / refstyle(结构线稿)
     mask_asset_id: int | None = None    # inpaint 掩码图
+    ref_asset_id: int | None = None     # refstyle 参考风格图
     # 采样参数不传时使用模板预设；模板也没有时按 Lightning 默认
     steps: int | None = Field(default=None, ge=1, le=40)
     cfg: float | None = Field(default=None, ge=1.0, le=10.0)
@@ -84,6 +85,7 @@ class TaskCreateIn(BaseModel):
     batch: int = Field(default=4, ge=1, le=8)
     controlnet_model: str = "mistoline_sdxl_fp16.safetensors"
     controlnet_strength: float = Field(default=0.75, ge=0.0, le=1.0)
+    ipadapter_weight: float = Field(default=0.85, ge=0.0, le=2.0)
 
 
 class AssetOut(BaseModel):

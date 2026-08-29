@@ -40,8 +40,10 @@ def _snapshot(db: Session, task_id: int) -> dict:
 @router.post("", response_model=TaskOut)
 async def create(body: TaskCreateIn, user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):
-    if body.mode in ("img2img", "inpaint", "floorplan") and not body.input_asset_id:
-        raise HTTPException(400, "图生图/局部重绘/平面图渲染必须上传输入图片")
+    if body.mode in ("img2img", "inpaint", "floorplan", "renovate") and not body.input_asset_id:
+        raise HTTPException(400, "图生图/局部重绘/平面图渲染/老房改造必须上传输入图片")
+    if body.mode == "refstyle" and not body.ref_asset_id:
+        raise HTTPException(400, "参考图风格匹配必须上传参考图片")
     if body.mode == "inpaint" and not body.mask_asset_id:
         raise HTTPException(400, "局部重绘必须绘制掩码区域")
     # 领域限定：本系统仅生成建筑/装修设计图

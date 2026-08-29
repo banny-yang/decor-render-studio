@@ -13,6 +13,7 @@ import {
   Card,
   Col,
   Image,
+  Input,
   InputNumber,
   message,
   Progress,
@@ -67,6 +68,10 @@ export default function FloorplanPage() {
   const [roomTasks, setRoomTasks] = useState<RoomTask[]>([]);
   const [submitting, setSubmitting] = useState(false);
   const [drawingKey, setDrawingKey] = useState<number | null>(null);
+  const [estResult, setEstResult] = useState<any>(null);
+  const [estScale, setEstScale] = useState<string>("");
+  const [estBusy, setEstBusy] = useState(false);
+  const [estPdfBusy, setEstPdfBusy] = useState(false);
   const keyRef = useRef(0);
 
   useEffect(() => {
@@ -147,6 +152,62 @@ export default function FloorplanPage() {
       message.error(e.message || "提交失败");
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const runEstimate = async () => {
+    const boxed = rooms.filter((r) => r.bbox);
+    if (!boxed.length) {
+      message.warning("请先定位至少一个房间（自动或框选）");
+      return;
+    }
+    setEstBusy(true);
+    try {
+      const r = await api.estimate({
+        input_asset_id: asset!.id,
+        rooms: boxed.map((r2) => ({ label: r2.label, room_type: r2.room_type, bbox: r2.bbox })),
+        mm_per_px: estScale ? Number(estScale) : undefined,
+        texts,
+      });
+      setEstResult(r);
+      if (r.scale_auto) setEstScale(String(r.mm_per_px));
+      message.success(`估算完成：合计约 ${r.total_area_sqm} ㎡`);
+    } catch (e: any) {
+      message.error(e.message || "估算失败（可能需手动填写比例尺 毫米/像素）");
+    } finally {
+      setEstBusy(false);
+    }
+  };
+
+  const exportEstCsv = () => {
+    if (!estResult) return;
+    const rows = [
+      ["房间", "宽(m)", "进深(m)", "面积(㎡)", "墙长(m)"],
+      ...estResult.items.map((i: any) => [i.label, i.width_m, i.depth_m, i.area_sqm, i.wall_len_m]),
+      ["合计", "", "", estResult.total_area_sqm, ""],
+    ];
+    const csv = "\uFEFF" + rows.map((r) => r.join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "工程量估算.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const exportEstPdf = async () => {
+    setEstPdfBusy(true);
+    try {
+      const a = await api.pdfEstimate({
+        title: "工程量估算表", customer: "", project_id: projectId ?? undefined,
+        rooms: rooms.filter((r) => r.bbox).map((r2) => ({ label: r2.label, bbox: r2.bbox })),
+        mm_per_px: estResult?.mm_per_px, texts,
+      });
+      window.open(assetUrl(a.url), "_blank");
+    } catch (e: any) {
+      message.error(e.message || "PDF 导出失败");
+    } finally {
+      setEstPdfBusy(false);
     }
   };
 
@@ -293,7 +354,59 @@ export default function FloorplanPage() {
                 ) },
               ]}
               locale={{ emptyText: "上传户型图后自动识别" }} />
-          </Card>
+              {asset && (
+                <Card size="small" style={{ marginTop: 12 }} title="工程量估算（辅助报价）">
+                  <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                    <Space>
+                      <Input placeholder="比例尺 mm/px（留空自动标定）"
+                        style={{ width: 220 }} value={estScale}
+                        onChange={(e) => setEstScale(e.target.value)} />
+                      <Button size="small" loading={estBusy} onClick={runEstimate}>
+                        {estResult ? "重新估算" : "开始估算"}
+                      </Button>
+                    </Space>
+                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                      按已定位房间框估算面积/墙长；自动标定取图纸最大跨度标注，可手动修正
+                    </Typography.Text>
+                  </Space>
+                </Card>
+              )}
+            </Card>
+
+          {estResult && (
+            <Card size="small" title={`工程量估算（合计约 ${estResult.total_area_sqm} ㎡）`} extra={
+              <Space>
+                <Button size="small" onClick={exportEstCsv}>导出 CSV</Button>
+                <Button size="small" loading={estPdfBusy} onClick={exportEstPdf}>导出 PDF</Button>
+              </Space>
+            }>
+              <Space direction="vertical" size={8} style={{ width: "100%" }}>
+                <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+                  <thead>
+                    <tr style={{ background: "#f3f6f5" }}>
+                      {["房间", "宽(m)", "进深(m)", "面积(㎡)", "墙长(m)"].map((h) => (
+                        <th key={h} style={{ padding: "6px 10px", textAlign: "left" }}>{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {estResult.items.map((it: any, idx: number) => (
+                      <tr key={idx} style={{ borderBottom: "1px solid #f0f0f0" }}>
+                        <td style={{ padding: "6px 10px" }}>{it.label}</td>
+                        <td style={{ padding: "6px 10px" }}>{it.width_m}</td>
+                        <td style={{ padding: "6px 10px" }}>{it.depth_m}</td>
+                        <td style={{ padding: "6px 10px" }}>{it.area_sqm}</td>
+                        <td style={{ padding: "6px 10px" }}>{it.wall_len_m}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                  比例尺 {estResult.mm_per_px} 毫米/像素 · {estResult.note}
+                </Typography.Text>
+              </Space>
+            </Card>
+          )}
 
           {roomTasks.length > 0 && (
             <Card size="small" title={`生成结果（${doneCount}/${roomTasks.length} 完成）`} extra={

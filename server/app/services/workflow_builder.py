@@ -19,11 +19,14 @@ MODE_FILES = {
     "img2img": "img2img_controlnet.json",
     "inpaint": "inpaint.json",
     "floorplan": "floorplan.json",
+    "renovate": "renovate.json",
+    "refstyle": "refstyle.json",
 }
 
 
 def build_workflow(mode: str, p: dict, input_name: str | None = None,
-                   mask_name: str | None = None, prefix: str = "rvx") -> dict:
+                   mask_name: str | None = None, prefix: str = "rvx",
+                   ref_name: str | None = None) -> dict:
     """p 为任务参数 dict；返回可直接提交 ComfyUI /prompt 的 workflow。"""
     path = settings.workflows_dir / MODE_FILES[mode]
     wf = json.loads(path.read_text(encoding="utf-8"))
@@ -43,7 +46,8 @@ def build_workflow(mode: str, p: dict, input_name: str | None = None,
         "seed": seed, "steps": p.get("steps", 6), "cfg": p.get("cfg", 1.5),
         "sampler_name": p.get("sampler", "euler"),
         "scheduler": p.get("scheduler", "sgm_uniform"),
-        "denoise": p.get("denoise", {"t2i": 1.0, "inpaint": 1.0, "floorplan": 0.85}.get(mode, 0.85)),
+        "denoise": p.get("denoise", {"t2i": 1.0, "inpaint": 1.0, "floorplan": 0.85,
+                                     "renovate": 0.85}.get(mode, 0.85)),
     })
     set_node("7", "filename_prefix", prefix)
 
@@ -56,6 +60,27 @@ def build_workflow(mode: str, p: dict, input_name: str | None = None,
         set_node("11", "control_net_name", p.get("controlnet_model", "mistoline_sdxl_fp16.safetensors"))
         set_node("12", "strength", p.get("controlnet_strength", 0.85 if mode == "floorplan" else 0.75))
         set_node("14", "amount", p.get("batch", 1))
+    elif mode == "renovate":
+        set_node("10", "image", input_name or "input.png")
+        set_node("14", "amount", p.get("batch", 1))
+    elif mode == "refstyle":
+        # 参考图（风格）+ 可选线稿（结构）：无结构线稿时切换为文生图链路
+        set_node("15", "ipadapter_file", p.get("ipadapter_model", "ip-adapter-plus_sdxl_vit-h.safetensors"))
+        set_node("18", "image", ref_name or "reference.png")
+        set_node("17", "weight", p.get("ipadapter_weight", 0.85))
+        ks2 = wf["5"]["inputs"]
+        if input_name:
+            set_node("10", "image", input_name)
+            set_node("12", "strength", p.get("controlnet_strength", 0.75))
+            set_node("14", "amount", p.get("batch", 1))
+            ks2["positive"], ks2["negative"] = ["12", 0], ["12", 1]
+            ks2["latent_image"] = ["14", 0]
+        else:
+            set_node("2", "width", p.get("width", 1024))
+            set_node("2", "height", p.get("height", 768))
+            set_node("2", "batch_size", p.get("batch", 1))
+            ks2["positive"], ks2["negative"] = ["3", 0], ["4", 0]
+            ks2["latent_image"] = ["2", 0]
     elif mode == "inpaint":
         set_node("10", "image", input_name or "input.png")
         set_node("11", "image", mask_name or "mask.png")

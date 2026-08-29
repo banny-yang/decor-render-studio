@@ -66,6 +66,51 @@ async def analyze(file: UploadFile = File(...), user: User = Depends(get_current
             "room_types": {k: v["label"] for k, v in ROOM_TYPES.items()}}
 
 
+class MatrixIn(BaseModel):
+    rooms: list[RoomIn] = Field(min_length=1, max_length=4)
+    template_ids: list[int] = Field(min_length=1, max_length=4)
+    project_id: int | None = None
+
+
+@router.post("/matrix")
+async def matrix(body: MatrixIn, user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    """方案矩阵：房间 × 风格 批量生成透视效果图（每格 1 张）。"""
+    from ..models import StyleTemplate as _T
+    tpls = []
+    for tid in body.template_ids:
+        t = db.get(_T, tid)
+        if t is None:
+            raise HTTPException(404, f"模板 {tid} 不存在")
+        tpls.append(t)
+
+    tasks = []
+    for room in body.rooms:
+        cfg = ROOM_TYPES.get(room.room_type)
+        if cfg is None:
+            raise HTTPException(400, f"未知房间类型: {room.room_type}")
+        for tpl in tpls:
+            style = DEFAULT_STYLE
+            for prefix, frag in STYLE_FRAGMENTS.items():
+                if tpl.name.startswith(prefix):
+                    style = frag
+                    break
+            width, height = size_by_bbox(room.bbox)
+            req = TaskCreateIn(
+                mode="t2i", project_id=body.project_id,
+                prompt=f"{cfg['perspective']}, {style}",
+                width=width, height=height,
+                steps=tpl.params.get("steps"), cfg=tpl.params.get("cfg"),
+                batch=1, seed=-1,
+            )
+            task = await create_task(db, user.id, req)
+            out = task_to_out(db, task)
+            out.params["room_label"] = room.label
+            out.params["style_label"] = tpl.name
+            tasks.append(out)
+    return {"tasks": tasks}
+
+
 @router.post("/render")
 async def render(body: RenderIn, user: User = Depends(get_current_user),
                  db: Session = Depends(get_db)):

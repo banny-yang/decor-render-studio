@@ -128,6 +128,18 @@ export const api = {
   },
   floorplanRender: (body: any) =>
     request<{ tasks: any[] }>("POST", "/api/floorplan/render", body),
+  floorplanMatrix: (body: any) =>
+    request<{ tasks: any[] }>("POST", "/api/floorplan/matrix", body),
+  renovateCompare: (taskId: number, outputIndex = 0) =>
+    request<Asset>("POST", "/api/renovate/compare", { task_id: taskId, output_index: outputIndex }),
+  estimate: (body: any) =>
+    request<{
+      mm_per_px: number; scale_auto: boolean; total_area_sqm: number; note: string;
+      items: { label: string; width_m: number; depth_m: number; area_sqm: number; wall_len_m: number }[];
+    }>("POST", "/api/estimate", body),
+  pdfProposal: (body: any) => request<Asset>("POST", "/api/pdf/proposal", body),
+  pdfEstimate: (body: any) => request<Asset>("POST", "/api/pdf/estimate", body),
+  pdfCompare: (body: any) => request<Asset>("POST", "/api/pdf/compare", body),
   health: () => request<{ mode: string; healthy: boolean }>("GET", "/api/tasks/meta/health"),
 };
 

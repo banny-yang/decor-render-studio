@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from .api import assets, auth, cad, floorplan, projects, prompt, tasks, templates
+from .api import assets, auth, cad, estimate, floorplan, pdf, projects, prompt, renovate, tasks, templates
 from .comfy.client import init_client
 from .comfy.listener import start_listener
 from .config import settings
@@ -46,6 +46,9 @@ app.include_router(templates.router)
 app.include_router(prompt.router)
 app.include_router(cad.router)
 app.include_router(floorplan.router)
+app.include_router(renovate.router)
+app.include_router(estimate.router)
+app.include_router(pdf.router)
 
 
 @app.get("/api/health")
