@@ -14,7 +14,7 @@ from .deps import get_current_user
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
-ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".xlsx"}
 
 
 def asset_to_out(a: Asset) -> AssetOut:
@@ -31,14 +31,16 @@ async def upload(file: UploadFile = File(...), user=Depends(get_current_user),
     if ext not in ALLOWED_EXT:
         raise HTTPException(400, f"不支持的图片格式: {ext}")
     data = await file.read()
-    if len(data) > 30 * 1024 * 1024:
-        raise HTTPException(400, "图片不能超过 30MB")
+    limit = 120 * 1024 * 1024 if ext == ".xlsx" else 30 * 1024 * 1024
+    if len(data) > limit:
+        raise HTTPException(400, "文件超过大小限制（图片 30MB / xlsx 120MB）")
 
     settings.uploads_dir.mkdir(parents=True, exist_ok=True)
     name = f"{uuid.uuid4().hex[:12]}{ext}"
     (settings.uploads_dir / name).write_bytes(data)
 
-    a = Asset(kind="upload", file_path=f"uploads/{name}", filename=file.filename or name)
+    kind = "doc" if ext == ".xlsx" else "upload"
+    a = Asset(kind=kind, file_path=f"uploads/{name}", filename=file.filename or name)
     db.add(a)
     db.commit()
     db.refresh(a)

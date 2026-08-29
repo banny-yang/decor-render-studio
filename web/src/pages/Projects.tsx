@@ -1,24 +1,15 @@
-import { DeleteOutlined, EditOutlined, FilePdfOutlined, FolderAddOutlined } from "@ant-design/icons";
 import {
-  Button,
-  Card,
-  Col,
-  Empty,
-  Form,
-  Image,
-  Input,
-  Modal,
-  Popconfirm,
-  Row,
-  Space,
-  Table,
-  Tag,
-  Typography,
-  message,
+  DeleteOutlined, EditOutlined, FileAddOutlined, FilePdfOutlined,
+  FolderAddOutlined, UploadOutlined,
+} from "@ant-design/icons";
+import {
+  Button, Card, Col, Empty, Form, Image, Input, Modal, Popconfirm, Row,
+  Space, Table, Tag, Typography, Upload, message,
 } from "antd";
+import type { UploadFile } from "antd";
 import { useEffect, useState } from "react";
 import { api, assetUrl } from "../api";
-import type { Project, Task } from "../types";
+import type { Asset, Project, Task } from "../types";
 
 const MODE_LABEL: Record<string, string> = { t2i: "文生图", img2img: "图生图", inpaint: "局部重绘" };
 const STATUS_COLOR: Record<string, string> = {
@@ -32,6 +23,14 @@ export default function Projects() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
   const [form] = Form.useForm();
+
+  // 方案书导出对话框
+  const [pdfProject, setPdfProject] = useState<Project | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [designNotes, setDesignNotes] = useState("");
+  const [moodAssets, setMoodAssets] = useState<Asset[]>([]);
+  const [moodFiles, setMoodFiles] = useState<UploadFile[]>([]);
+  const [materialAsset, setMaterialAsset] = useState<Asset | null>(null);
 
   const load = () => api.projects().then(setProjects).catch((e) => message.error(e.message));
   useEffect(() => {
@@ -104,23 +103,17 @@ export default function Projects() {
                   </Popconfirm>
                   <Button size="small" icon={<FilePdfOutlined />}
                     onClick={async () => {
-                      try {
-                        const list = await api.tasks({ project_id: p.id, limit: 100 });
-                        const ids = list.filter((t) => t.status === "done").map((t) => t.id);
-                        if (!ids.length) {
-                          message.info("该项目暂无已完成的生成任务");
-                          return;
-                        }
-                        message.loading({ content: "生成 PDF 中…", key: "pdf", duration: 0 });
-                        const a = await api.pdfProposal({
-                          title: p.name, customer: p.customer, project_id: p.id, task_ids: ids,
-                        });
-                        message.destroy("pdf");
-                        window.open(assetUrl(a.url), "_blank");
-                      } catch (e: any) {
-                        message.destroy("pdf");
-                        message.error(e.message || "导出失败");
+                      const list = await api.tasks({ project_id: p.id, limit: 100 });
+                      const ids = list.filter((t) => t.status === "done").map((t) => t.id);
+                      if (!ids.length) {
+                        message.info("该项目暂无已完成的生成任务");
+                        return;
                       }
+                      setDesignNotes("");
+                      setMoodAssets([]);
+                      setMoodFiles([]);
+                      setMaterialAsset(null);
+                      setPdfProject(p);
                     }}>
                     方案书
                   </Button>
@@ -196,6 +189,116 @@ export default function Projects() {
             <Input.TextArea rows={2} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      <Modal
+        title={pdfProject ? `导出方案书 — ${pdfProject.name}` : "导出方案书"}
+        open={!!pdfProject} width={620}
+        confirmLoading={pdfBusy}
+        okText="生成 PDF" cancelText="取消"
+        onCancel={() => setPdfProject(null)}
+        onOk={async () => {
+          if (!pdfProject) return;
+          const list = await api.tasks({ project_id: pdfProject.id, limit: 100 });
+          const ids = list.filter((t) => t.status === "done").map((t) => t.id);
+          if (!ids.length) {
+            message.info("该项目暂无已完成的生成任务");
+            return;
+          }
+          setPdfBusy(true);
+          try {
+            const paragraphs = designNotes.split(/\n+/).map((s) => s.trim()).filter(Boolean);
+            const a = await api.pdfProposal({
+              title: pdfProject.name,
+              customer: pdfProject.customer,
+              project_id: pdfProject.id,
+              task_ids: ids,
+              notes: paragraphs.length ? [{ heading: "设计说明", paragraphs }] : [],
+              moodboard_asset_ids: moodAssets.map((m) => m.id),
+              material_asset_id: materialAsset?.id ?? null,
+            });
+            window.open(assetUrl(a.url), "_blank");
+            setPdfProject(null);
+          } catch (e: any) {
+            message.error(e.message || "导出失败");
+          } finally {
+            setPdfBusy(false);
+          }
+        }}
+      >
+        <Space direction="vertical" size={14} style={{ width: "100%" }}>
+          <div>
+            <Typography.Text strong>设计说明（可选）</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 6 }}>
+              一行一段，将作为「设计说明」文本页插入目录之后。
+            </Typography.Paragraph>
+            <Input.TextArea rows={4} value={designNotes}
+              onChange={(e) => setDesignNotes(e.target.value)}
+              placeholder={"本案以现代轻奢为主线…\n目标客群为改善型家庭…"} />
+          </div>
+          <div>
+            <Typography.Text strong>意向回顾图（可选，最多 12 张）</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 6 }}>
+              客户参考图/风格意向图，将以 3×2 金框网格呈现。
+            </Typography.Paragraph>
+            <Upload
+              listType="picture-card"
+              fileList={moodFiles}
+              accept="image/*"
+              multiple
+              beforeUpload={async (file) => {
+                if (moodAssets.length >= 12) return Upload.LIST_IGNORE;
+                try {
+                  const a = await api.upload(file, file.name);
+                  setMoodAssets((prev) => [...prev, a]);
+                } catch (e: any) {
+                  message.error(e.message || "上传失败");
+                }
+                return Upload.LIST_IGNORE;
+              }}
+              onRemove={(f) => {
+                const idx = moodFiles.findIndex((m) => m.uid === f.uid);
+                setMoodAssets((prev) => prev.filter((_, i) => i !== idx));
+                setMoodFiles((prev) => prev.filter((m) => m.uid !== f.uid));
+              }}
+            >
+              <Space direction="vertical" size={2} style={{ marginTop: 22 }}>
+                <UploadOutlined />
+                <Typography.Text style={{ fontSize: 12 }}>上传</Typography.Text>
+              </Space>
+            </Upload>
+          </div>
+          <div>
+            <Typography.Text strong>物料清单 xlsx（可选）</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ fontSize: 12, marginBottom: 6 }}>
+              装饰公司材料表/选型表 Excel，自动识别多工作表生成「材料清单」章节。
+            </Typography.Paragraph>
+            <Space>
+              <Upload
+                maxCount={1} accept=".xlsx"
+                showUploadList={false}
+                beforeUpload={async (file) => {
+                  try {
+                    const a = await api.upload(file, file.name);
+                    setMaterialAsset(a);
+                    message.success(`已上传：${a.filename}`);
+                  } catch (e: any) {
+                    message.error(e.message || "上传失败");
+                  }
+                  return Upload.LIST_IGNORE;
+                }}
+              >
+                <Button icon={<FileAddOutlined />}>选择 xlsx 文件</Button>
+              </Upload>
+              {materialAsset && (
+                <>
+                  <Tag color="gold">{materialAsset.filename}</Tag>
+                  <Button size="small" type="link" onClick={() => setMaterialAsset(null)}>移除</Button>
+                </>
+              )}
+            </Space>
+          </div>
+        </Space>
       </Modal>
     </Space>
   );

@@ -137,7 +137,12 @@ export const api = {
       mm_per_px: number; scale_auto: boolean; total_area_sqm: number; note: string;
       items: { label: string; width_m: number; depth_m: number; area_sqm: number; wall_len_m: number }[];
     }>("POST", "/api/estimate", body),
-  pdfProposal: (body: any) => request<Asset>("POST", "/api/pdf/proposal", body),
+  pdfProposal: (body: {
+    title: string; customer: string; project_id?: number; task_ids: number[];
+    notes?: { heading: string; paragraphs: string[] }[];
+    moodboard_asset_ids?: number[];
+    material_asset_id?: number | null;
+  }) => request<Asset>("POST", "/api/pdf/proposal", body),
   pdfEstimate: (body: any) => request<Asset>("POST", "/api/pdf/estimate", body),
   pdfCompare: (body: any) => request<Asset>("POST", "/api/pdf/compare", body),
   health: () => request<{ mode: string; healthy: boolean }>("GET", "/api/tasks/meta/health"),

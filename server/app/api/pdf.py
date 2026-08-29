@@ -25,17 +25,25 @@ def _to_asset(db: Session, path, kind: str, project_id: int | None) -> Asset:
     return a
 
 
+class NoteIn(BaseModel):
+    heading: str = "设计说明"
+    paragraphs: list[str] = []
+
+
 class ProposalIn(BaseModel):
     title: str = "室内设计方案书"
     customer: str = ""
     project_id: int | None = None
     task_ids: list[int] = Field(min_length=1, max_length=60)
+    notes: list[NoteIn] = []                    # 设计说明/项目分析文本页
+    moodboard_asset_ids: list[int] = []         # 意向回顾图（upload 资产）
+    material_asset_id: int | None = None        # 物料清单 xlsx（doc 资产）
 
 
 @router.post("/proposal")
 def proposal(body: ProposalIn, user: User = Depends(get_current_user),
              db: Session = Depends(get_db)):
-    """按任务产物生成方案书 PDF（按房间标签分组）。"""
+    """按任务产物生成方案书 PDF（设计说明+意向回顾+分房间效果图+物料清单）。"""
     tasks = []
     for tid in body.task_ids:
         t = db.get(Task, tid)
@@ -54,9 +62,30 @@ def proposal(body: ProposalIn, user: User = Depends(get_current_user),
             sections[key] = []
             order.append(key)
         sections[key].extend(str(settings.data_dir / o.file_path) for o in outs)
+
+    moodboard: list[str] = []
+    for aid in body.moodboard_asset_ids[:12]:
+        a = db.get(Asset, aid)
+        if a and a.kind == "upload":
+            moodboard.append(str(settings.data_dir / a.file_path))
+
+    materials = None
+    if body.material_asset_id:
+        doc = db.get(Asset, body.material_asset_id)
+        if doc and doc.file_path.endswith(".xlsx"):
+            path = settings.data_dir / doc.file_path
+            if path.is_file():
+                from ..services.material_service import parse_material_xlsx
+                try:
+                    materials = parse_material_xlsx(path)
+                except Exception as e:
+                    raise HTTPException(400, f"物料清单解析失败: {e}")
+
     path = pdf_service.build_proposal(
         body.title, body.customer,
-        [{"heading": k, "image_paths": sections[k]} for k in order])
+        [{"heading": k, "image_paths": sections[k]} for k in order],
+        notes=[n.model_dump() for n in body.notes],
+        moodboard=moodboard, materials=materials)
     return asset_to_out(_to_asset(db, path, "pdf", body.project_id))
 
 

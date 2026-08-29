@@ -10,6 +10,7 @@ from pathlib import Path
 
 from PIL import Image as PILImage
 from reportlab.lib import colors
+from reportlab.lib.utils import simpleSplit
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.pdfgen import canvas as pdfcanvas
@@ -62,9 +63,20 @@ _ZONE_EN = [
 ]
 _CN_NUM = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十"]
 
+# 内容页英文标题（按中文关键词匹配）
+_PAGE_EN = [
+    ("设计说明", "DESIGN CONCEPT"), ("项目分析", "PROJECT ANALYSIS"),
+    ("意向", "MOOD BOARD"), ("户型", "UNIT TYPES"),
+    ("材料", "MATERIALS LIST"), ("估算", "QUANTITY ESTIMATION"),
+    ("对比", "COMPARISON"), ("改造", "RENOVATION"),
+]
+
 
 def _zone_en(name: str) -> str:
     for key, en in _ZONE_EN:
+        if key in name:
+            return en
+    for key, en in _PAGE_EN:
         if key in name:
             return en
     return "RENDERING"
@@ -208,23 +220,168 @@ def _zone_header(d: _Deck, cn_label: str, en_name: str, sub_cn: str):
     d._text(30 + w, 510 - 13, cn_label, zh, 9, MUTED)
 
 
+def _text_pages(d: _Deck, heading: str, paragraphs: list[str]):
+    """设计说明/项目分析文本页（一段可跨页）。"""
+    zh = _zh()
+    en = _zone_en(heading)
+    _zone_header(d, heading, en, heading)
+    y, x, width = 430, 80, 800
+    for para in paragraphs:
+        for line in simpleSplit(str(para), zh, 11, width):
+            if y < 70:
+                _zone_header(d, heading, en, f"{heading}（续）")
+                y = 430
+            d._text(x, y, line, zh, 11, WHITE)
+            y -= 20
+        y -= 12            # 段间距
+        if y < 70:
+            _zone_header(d, heading, en, f"{heading}（续）")
+            y = 430
+
+
+def _moodboard_pages(d: _Deck, image_paths: list[str]):
+    """意向回顾：3x2 金框图片网格，每页 6 张。"""
+    _zone_header(d, "意向回顾", "MOOD BOARD", "意向参考图")
+    cols, rows_n, gap = 3, 2, 14
+    x0, y0 = 40, 60
+    cell_w = (PAGE_W - 2 * x0 - (cols - 1) * gap) / cols
+    cell_h = (430 - y0 - (rows_n - 1) * gap) / rows_n
+    for i, path in enumerate(image_paths):
+        if i and i % (cols * rows_n) == 0:
+            _zone_header(d, "意向回顾", "MOOD BOARD", "意向参考图（续）")
+        slot = i % (cols * rows_n)
+        cx = x0 + (slot % cols) * (cell_w + gap)
+        cy = y0 + (rows_n - 1 - slot // cols) * (cell_h + gap)
+        if Path(path).is_file():
+            d.image_fit(path, cx, cy, cell_w, cell_h)
+        c = d.c
+        c.setStrokeColor(GOLD_DIM)
+        c.setLineWidth(0.5)
+        c.rect(cx, cy, cell_w, cell_h, stroke=1, fill=0)
+
+
+# 物料清单列：标准键 → (表头, 列宽)，总宽 ≤ 840
+_MAT_COLS = [
+    ("code", "编号", 70), ("name", "名称", 120), ("spec", "规格", 180),
+    ("color", "颜色/外观", 110), ("model", "型号", 90), ("brand", "品牌", 68),
+    ("location", "使用位置", 130), ("remark", "备注", 72),
+]
+
+
+def _flatten(text: str | None, limit: int = 38) -> str:
+    """单元格多行文本压成一行并截断。"""
+    if not text:
+        return ""
+    import re
+    one = re.sub(r"\s+", " ", str(text)).strip()
+    return one[:limit] + ("…" if len(one) > limit else "")
+
+
+def _materials_pages(d: _Deck, sheet_title: str, items: list[dict]):
+    """物料清单表格页（深色金头表格，自动分页，分类行金色小标题）。"""
+    zh = _zh()
+    real = [it for it in items if "category" not in it]
+    cols = [(k, h, w) for k, h, w in _MAT_COLS if any(k in it for it in real)]
+    if not cols:
+        return
+    _zone_header(d, "材料清单", "MATERIALS LIST", sheet_title)
+    x0, rh = 60, 24
+    total_w = sum(w for _, _, w in cols)
+    c = d.c
+
+    def _head_row(y):
+        c.setFillColor(GOLD)
+        c.rect(x0, y - rh + 6, total_w, rh, stroke=0, fill=1)
+        cx = x0
+        for _, head, w in cols:
+            d._text(cx + 10, y - rh + 13, head, zh, 9.5,
+                    colors.HexColor("#262626"))
+            cx += w
+
+    y = 448
+    _head_row(y)
+    y -= rh
+    zebra = 0
+    for it in items:
+        if y - rh < 50:
+            _zone_header(d, "材料清单", "MATERIALS LIST", f"{sheet_title}（续）")
+            y = 448
+            _head_row(y)
+            y -= rh
+        y -= rh
+        if "category" in it:                     # 分类行
+            d._text(x0 + 6, y + 7, it["category"], zh, 10, GOLD)
+            d.hairline(x0, y, x0 + total_w, y, GOLD_DIM, 0.3, alpha=0.5)
+            continue
+        c.setFillColor(BG_SOFT if zebra % 2 else colors.HexColor("#2B2B2B"))
+        zebra += 1
+        c.rect(x0, y, total_w, rh, stroke=0, fill=1)
+        cx = x0
+        for key, _, w in cols:
+            val = _flatten(it.get(key, ""))
+            font = SERIF if key == "code" and not any(
+                "\u4e00" <= ch <= "\u9fff" for ch in val) else zh
+            d._text(cx + 10, y + 7, val, font, 8.5, WHITE)
+            cx += w
+
+
 # ---- 三个交付物 ----
 
-def build_proposal(title: str, customer: str, sections: list[dict]) -> Path:
-    """方案书：sections = [{heading, image_paths: [..], note}]"""
+def build_proposal(title: str, customer: str, sections: list[dict],
+                   notes: list[dict] | None = None,
+                   moodboard: list[str] | None = None,
+                   materials: list[dict] | None = None) -> Path:
+    """方案书（完整交付结构，对齐深化方案样本）：
+    封面 → 目录 → 设计说明/项目分析文本页 → 意向回顾拼图页 → 分房间效果图 → 物料清单表
+    - sections: [{heading, image_paths: [..], note}]
+    - notes: [{heading, paragraphs: [str]}]
+    - moodboard: 意向参考图路径列表
+    - materials: [{sheet, items}]（material_service.parse_material_xlsx 输出）
+    """
+    notes = notes or []
+    moodboard = [p for p in (moodboard or []) if Path(p).is_file()]
+    materials = materials or []
+    sections = [s for s in sections
+                if any(Path(p).is_file() for p in s.get("image_paths", []))]
+
     d = _new_deck("proposal")
     _cover(d, title, customer, "INTERIOR DESIGN PROPOSAL")
-    _catalog(d, [(s.get("heading", "效果图"), _zone_en(s.get("heading", "")))
-                 for s in sections])
-    for i, sec in enumerate(sections):
+    catalog = [(n.get("heading", "设计说明"), _zone_en(n.get("heading", "")))
+               for n in notes]
+    if moodboard:
+        catalog.append(("意向回顾", "MOOD BOARD"))
+    catalog += [(s.get("heading", "效果图"), _zone_en(s.get("heading", "")))
+                for s in sections]
+    if materials:
+        catalog.append(("材料清单", "MATERIALS LIST"))
+    _catalog(d, catalog)
+
+    num = 1
+    for n in notes:
+        _divider(d, f"{num:02d}", n.get("heading", "设计说明"),
+                 _zone_en(n.get("heading", "")))
+        _text_pages(d, n.get("heading", "设计说明"),
+                    n.get("paragraphs", []))
+        num += 1
+    if moodboard:
+        _divider(d, f"{num:02d}", "意向回顾", "MOOD BOARD")
+        _moodboard_pages(d, moodboard)
+        num += 1
+    for sec in sections:
         heading = sec.get("heading", "效果图")
         en = _zone_en(heading)
-        _divider(d, f"{i + 1:02d}", heading, en)
+        _divider(d, f"{num:02d}", heading, en)
+        num += 1
         imgs = [p for p in sec.get("image_paths", []) if Path(p).is_file()]
         for j, img in enumerate(imgs):
             sub = f"方案{_CN_NUM[j]} | 效果图" if len(imgs) > 1 else "效果图"
             _zone_header(d, heading, en, sub)
             d.image_fit(img, 20, 24, PAGE_W - 40, 450)
+    if materials:
+        _divider(d, f"{num:02d}", "材料清单", "MATERIALS LIST")
+        for msheet in materials:
+            _materials_pages(d, msheet.get("sheet", "材料表"),
+                             msheet.get("items", []))
     return d.close()
 
 
