@@ -18,6 +18,19 @@ class UserOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class UserCreateIn(BaseModel):
+    username: str = Field(min_length=2, max_length=64, pattern=r"^[\w\u4e00-\u9fff.-]+$")
+    password: str = Field(min_length=6, max_length=64)
+    display_name: str = Field(default="", max_length=64)
+    is_admin: bool = False
+
+
+class UserUpdateIn(BaseModel):
+    password: str | None = Field(default=None, min_length=6, max_length=64)
+    display_name: str | None = Field(default=None, max_length=64)
+    is_admin: bool | None = None
+
+
 class TokenOut(BaseModel):
     token: str
     user: UserOut
@@ -117,5 +130,10 @@ class TaskOut(BaseModel):
     finished_at: datetime | None
     outputs: list[AssetOut] = []
     input_asset: AssetOut | None = None
+    # 队列信息（pending 时有效）
+    queue_position: int = 0      # 排第几位（1 = 下一个执行）
+    queue_waiting: int = 0       # 全局排队总数
+    est_wait_sec: int = 0        # 预计等待秒数
+    user_id: int | None = None
 
     model_config = {"from_attributes": True}

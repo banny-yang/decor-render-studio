@@ -38,7 +38,7 @@ export interface Project {
 export interface Task {
   id: number;
   mode: "t2i" | "img2img" | "inpaint";
-  status: "pending" | "queued" | "running" | "done" | "error";
+  status: "pending" | "queued" | "running" | "done" | "error" | "cancelled";
   progress: number;
   step: number;
   total_steps: number;
@@ -52,4 +52,17 @@ export interface Task {
   finished_at: string | null;
   outputs: Asset[];
   input_asset: Asset | null;
+  queue_position: number;
+  queue_waiting: number;
+  est_wait_sec: number;
+  user_id: number | null;
+}
+
+export interface QueueOverview {
+  running: number;
+  waiting: number;
+  avg_duration_sec: number;
+  concurrency: number;
+  my_pending: { id: number; queue_position: number; est_wait_sec: number;
+                prompt: string; mode: string }[];
 }

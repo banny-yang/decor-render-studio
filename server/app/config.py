@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     secret_key: str = "please-change-me"
     access_token_hours: int = 12
 
+    # 全局任务队列（多用户共享一张 GPU）
+    max_concurrency: int = 1          # 同时执行任务数（8GB 显存建议 1）
+    queue_task_timeout: int = 1200    # 单任务执行超时（秒）
+
     model_config = {
         "env_file": str(SERVER_DIR / ".env"),
         "env_file_encoding": "utf-8",

@@ -9,6 +9,7 @@ import {
   SwapOutlined,
   TableOutlined,
   TagsOutlined,
+  TeamOutlined,
 } from "@ant-design/icons";
 import { Avatar, Button, Dropdown, Layout, Menu, Space, Tag, Typography } from "antd";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -21,6 +22,7 @@ import Projects from "./pages/Projects";
 import RefStylePage from "./pages/RefStylePage";
 import RenovatePage from "./pages/RenovatePage";
 import Templates from "./pages/Templates";
+import UsersPage from "./pages/UsersPage";
 import Workbench from "./pages/Workbench";
 
 const { Header, Sider, Content } = Layout;
@@ -38,6 +40,20 @@ function Shell({ children }: { children: React.ReactNode }) {
   const selected = loc.pathname.split("/")[1] || "workbench";
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
+
+  const menuItems = [
+    { key: "workbench", icon: <AppstoreOutlined />, label: "生图工作台" },
+    { key: "floorplan", icon: <ApartmentOutlined />, label: "户型图分房生成" },
+    { key: "matrix", icon: <TableOutlined />, label: "方案矩阵" },
+    { key: "renovate", icon: <SwapOutlined />, label: "老房改造对比" },
+    { key: "refstyle", icon: <PictureFilled />, label: "参考图风格匹配" },
+    { key: "projects", icon: <FolderOutlined />, label: "项目与历史" },
+    { key: "templates", icon: <TagsOutlined />, label: "风格模板" },
+    { key: "cad", icon: <FileTextOutlined />, label: "CAD 施工图" },
+    ...(user?.is_admin
+      ? [{ key: "users", icon: <TeamOutlined />, label: "用户管理" }]
+      : []),
+  ];
 
   return (
     <Layout style={{ minHeight: "100vh" }}>
@@ -57,16 +73,7 @@ function Shell({ children }: { children: React.ReactNode }) {
           mode="inline"
           selectedKeys={[selected]}
           onClick={({ key }) => navigate(`/${key}`)}
-          items={[
-            { key: "workbench", icon: <AppstoreOutlined />, label: "生图工作台" },
-            { key: "floorplan", icon: <ApartmentOutlined />, label: "户型图分房生成" },
-            { key: "matrix", icon: <TableOutlined />, label: "方案矩阵" },
-            { key: "renovate", icon: <SwapOutlined />, label: "老房改造对比" },
-            { key: "refstyle", icon: <PictureFilled />, label: "参考图风格匹配" },
-            { key: "projects", icon: <FolderOutlined />, label: "项目与历史" },
-            { key: "templates", icon: <TagsOutlined />, label: "风格模板" },
-            { key: "cad", icon: <FileTextOutlined />, label: "CAD 施工图" },
-          ]}
+          items={menuItems}
         />
       </Sider>
       <Layout>
@@ -149,6 +156,9 @@ export default function App() {
         } />
         <Route path="/floorplan" element={
           <RequireAuth><Shell><FloorplanPage /></Shell></RequireAuth>
+        } />
+        <Route path="/users" element={
+          <RequireAuth><Shell><UsersPage /></Shell></RequireAuth>
         } />
         <Route path="*" element={<Navigate to="/workbench" replace />} />
       </Routes>

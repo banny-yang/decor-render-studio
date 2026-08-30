@@ -4,22 +4,29 @@ import {
 } from "@ant-design/icons";
 import {
   Button, Card, Col, Empty, Form, Image, Input, Modal, Popconfirm, Row,
-  Space, Table, Tag, Typography, Upload, message,
+  Space, Switch, Table, Tag, Typography, Upload, message,
 } from "antd";
 import type { UploadFile } from "antd";
 import { useEffect, useState } from "react";
-import { api, assetUrl } from "../api";
+import { api, assetUrl, useAuth } from "../api";
 import type { Asset, Project, Task } from "../types";
 
 const MODE_LABEL: Record<string, string> = { t2i: "文生图", img2img: "图生图", inpaint: "局部重绘" };
 const STATUS_COLOR: Record<string, string> = {
-  pending: "default", queued: "blue", running: "processing", done: "green", error: "red",
+  pending: "orange", queued: "blue", running: "processing", done: "green",
+  error: "red", cancelled: "default",
+};
+const STATUS_LABEL: Record<string, string> = {
+  pending: "排队中", queued: "已提交", running: "生成中", done: "已完成",
+  error: "失败", cancelled: "已取消",
 };
 
 export default function Projects() {
+  const me = useAuth((s) => s.user);
   const [projects, setProjects] = useState<Project[]>([]);
   const [selected, setSelected] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [scopeAll, setScopeAll] = useState(false);   // 管理员：全部用户 / 仅自己
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<Project | null>(null);
   const [form] = Form.useForm();
@@ -33,10 +40,7 @@ export default function Projects() {
   const [materialAsset, setMaterialAsset] = useState<Asset | null>(null);
 
   const load = () => api.projects().then(setProjects).catch((e) => message.error(e.message));
-  useEffect(() => {
-    load();
-    api.tasks({ limit: 30 }).then(setTasks).catch(() => undefined);
-  }, []);
+  useEffect(() => { load(); }, []);   // 任务由 loadTasks effect 拉取
 
   const openCreate = () => {
     setEditing(null);
@@ -61,9 +65,16 @@ export default function Projects() {
     load();
   };
 
+  const loadTasks = (proj: Project | null = selected, all = scopeAll) => {
+    const base: Record<string, any> = { limit: proj ? 100 : 30 };
+    if (proj) base.project_id = proj.id;
+    if (all) base.scope = "all";
+    api.tasks(base).then(setTasks).catch(() => undefined);
+  };
+  useEffect(() => { loadTasks(); }, [scopeAll]);   // eslint-disable-line
   const select = (p: Project | null) => {
     setSelected(p);
-    api.tasks(p ? { project_id: p.id, limit: 100 } : { limit: 30 }).then(setTasks);
+    loadTasks(p);
   };
 
   return (
@@ -124,7 +135,14 @@ export default function Projects() {
         />
       </Card>
 
-      <Card size="small" title={selected ? `「${selected.name}」任务历史` : "全部任务（最近 30 条）"}>
+      <Card size="small"
+        title={selected ? `「${selected.name}」任务历史` : "我的任务（最近 30 条）"}
+        extra={me?.is_admin ? (
+          <Space>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>全部用户</Typography.Text>
+            <Switch checked={scopeAll} onChange={setScopeAll} size="small" />
+          </Space>
+        ) : undefined}>
         {tasks.length === 0 ? (
           <Empty description="暂无任务" />
         ) : (
@@ -136,7 +154,9 @@ export default function Projects() {
                     <Typography.Text strong>任务 #{t.id}</Typography.Text>
                     <Tag>{MODE_LABEL[t.mode]}</Tag>
                     <Tag color={STATUS_COLOR[t.status]}>
-                      {{ pending: "排队中", queued: "已提交", running: "生成中", done: "已完成", error: "失败" }[t.status]}
+                      {STATUS_LABEL[t.status]}
+                      {t.status === "pending" && t.queue_position
+                        ? ` 第${t.queue_position}位` : ""}
                     </Tag>
                     {t.input_asset && <Tag color="cyan">含输入图</Tag>}
                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>

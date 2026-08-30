@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { Asset, Project, Task, Template, User } from "./types";
+import type { Asset, Project, QueueOverview, Task, Template, User } from "./types";
 
 const BASE = import.meta.env.DEV ? "http://127.0.0.1:8000" : "";
 
@@ -97,6 +97,15 @@ export const api = {
     return request<Task[]>("GET", `/api/tasks${qs}`);
   },
   createTask: (body: any) => request<Task>("POST", "/api/tasks", body),
+  taskDetail: (id: number) => request<Task>("GET", `/api/tasks/${id}`),
+  cancelTask: (id: number) => request<Task>("POST", `/api/tasks/${id}/cancel`),
+  queueOverview: () => request<QueueOverview>("GET", "/api/tasks/meta/queue"),
+  users: () => request<User[]>("GET", "/api/auth/users"),
+  createUser: (body: { username: string; password: string; display_name?: string; is_admin?: boolean }) =>
+    request<User>("POST", "/api/auth/users", body),
+  updateUser: (id: number, body: { password?: string; display_name?: string; is_admin?: boolean }) =>
+    request<User>("PUT", `/api/auth/users/${id}`, body),
+  deleteUser: (id: number) => request<any>("DELETE", `/api/auth/users/${id}`),
   upload: (blob: Blob, filename: string) => {
     const fd = new FormData();
     fd.append("file", blob, filename);

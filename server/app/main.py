@@ -25,6 +25,20 @@ async def lifespan(app: FastAPI):
     else:
         init_client(settings.comfyui_url)
         start_listener()
+    # 重启恢复：上次中断的任务（queued/running）重新排队，由调度器再次执行
+    from sqlalchemy import select
+    from .db import SessionLocal
+    from .models import Task
+    from .services.queue_service import start_dispatcher
+    with SessionLocal() as db:
+        stuck = db.scalars(select(Task).where(Task.status.in_(("queued", "running")))).all()
+        for t in stuck:
+            t.status, t.progress = "pending", 0.0
+        if stuck:
+            db.commit()
+            logging.getLogger("main").info("重启恢复：%s 个未完成任务重新排队", len(stuck))
+    # 全局任务队列（多用户 FIFO 排队，串行执行）
+    start_dispatcher()
     yield
 
 

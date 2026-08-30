@@ -13,7 +13,7 @@ from .client import client
 
 log = logging.getLogger("comfy.listener")
 
-TERMINAL = ("done", "error")
+TERMINAL = ("done", "error", "cancelled")
 
 
 async def _publish(task_id: int, **fields):

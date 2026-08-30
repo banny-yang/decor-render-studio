@@ -18,7 +18,7 @@ from .workflow_builder import build_workflow
 
 log = logging.getLogger("task_service")
 
-TERMINAL = ("done", "error")
+TERMINAL = ("done", "error", "cancelled")
 
 
 async def _publish(task_id: int, **fields):
@@ -90,6 +90,10 @@ async def create_task(db, user_id: int | None, data: TaskCreateIn) -> Task:
             pass
 
     p = _params_dict(data, positive, negative, tparams)
+    # 输入资产引用持久化，供队列 worker 重启后仍能提交
+    p["_in"] = {"input_asset_id": data.input_asset_id,
+                "mask_asset_id": data.mask_asset_id,
+                "ref_asset_id": data.ref_asset_id}
 
     task = Task(
         mode=data.mode, status="pending", project_id=data.project_id, user_id=user_id,
@@ -108,47 +112,39 @@ async def create_task(db, user_id: int | None, data: TaskCreateIn) -> Task:
             a.kind = "input"
             db.commit()
 
-    # 后台异步提交，立即返回给前端
-    asyncio.create_task(_dispatch(task.id, data))
+    # 入全局队列，由 queue_service 的 worker 按 FIFO 提交（多用户排队）
+    from . import queue_service
+    with SessionLocal() as qdb:
+        info = queue_service.task_queue_info(qdb, task)
+    await _publish(task.id, status="pending", **info)
+    queue_service.notify_new_task()
     return task
 
 
-async def _dispatch(task_id: int, data: TaskCreateIn):
-    try:
-        if settings.mock_comfyui:
-            await _run_mock(task_id)
-        else:
-            await _submit_to_comfyui(task_id, data)
-    except Exception as e:
-        log.exception("任务 %s 提交失败", task_id)
-        with SessionLocal() as db:
-            task = db.get(Task, task_id)
-            if task and task.status not in TERMINAL:
-                task.status = "error"
-                task.error = f"{e}"[:2000]
-                task.finished_at = utcnow()
-                db.commit()
-                await _publish(task_id, status="error", error=task.error)
-
-
-async def _submit_to_comfyui(task_id: int, data: TaskCreateIn):
+async def _submit_to_comfyui(task_id: int):
+    """从 DB 读取任务（含 params._in 资产引用），构建工作流并提交 ComfyUI。"""
     with SessionLocal() as db:
         task = db.get(Task, task_id)
-        if task is None:
+        if task is None or task.status != "pending":   # 已被取消则跳过
             return
         p = dict(task.params)
+        mode = task.mode
+        inputs = p.get("_in") or {}
+        input_asset_id = inputs.get("input_asset_id")
+        mask_asset_id = inputs.get("mask_asset_id")
+        ref_asset_id = inputs.get("ref_asset_id")
 
         # 输入图上传到 ComfyUI
         input_name = mask_name = ref_name = None
 
         # refstyle：上传参考风格图（无结构线稿时按参考图宽高比定尺寸）
-        if data.mode == "refstyle":
-            if not data.ref_asset_id:
+        if mode == "refstyle":
+            if not ref_asset_id:
                 raise ValueError("参考图风格匹配必须提供参考图片")
             from PIL import Image as _Img
-            ref = db.get(Asset, data.ref_asset_id)
+            ref = db.get(Asset, ref_asset_id)
             rfile = settings.data_dir / ref.file_path
-            if not data.input_asset_id:
+            if not input_asset_id:
                 with _Img.open(rfile) as ri:
                     ratio = ri.width / ri.height
                 p["width"], p["height"] = (1024, 768) if ratio >= 1.2 else \
@@ -156,20 +152,20 @@ async def _submit_to_comfyui(task_id: int, data: TaskCreateIn):
             ref_name = await comfy_client.upload_image(rfile.read_bytes(),
                                                        f"task{task_id}_ref.png")
 
-        if data.mode in ("img2img", "inpaint", "floorplan", "renovate"):
-            asset = db.get(Asset, data.input_asset_id) if data.input_asset_id else None
+        if mode in ("img2img", "inpaint", "floorplan", "renovate"):
+            asset = db.get(Asset, input_asset_id) if input_asset_id else None
             if asset is None:
                 raise ValueError("图生图/局部重绘必须提供输入图片")
             file = settings.data_dir / asset.file_path
             input_name = await comfy_client.upload_image(file.read_bytes(), f"task{task_id}_input.png")
-            if data.mode == "inpaint":
-                if not data.mask_asset_id:
+            if mode == "inpaint":
+                if not mask_asset_id:
                     raise ValueError("局部重绘必须提供掩码图片")
-                m = db.get(Asset, data.mask_asset_id)
+                m = db.get(Asset, mask_asset_id)
                 mfile = settings.data_dir / m.file_path
                 mask_name = await comfy_client.upload_image(mfile.read_bytes(), f"task{task_id}_mask.png")
 
-        wf = build_workflow(data.mode, p, input_name=input_name, mask_name=mask_name,
+        wf = build_workflow(mode, p, input_name=input_name, mask_name=mask_name,
                             prefix=f"rvx/task{task_id}", ref_name=ref_name)
         pid = await comfy_client.submit(wf)
         task.prompt_id = pid
@@ -243,7 +239,7 @@ async def _run_mock(task_id: int):
 
     with SessionLocal() as db:
         task = db.get(Task, task_id)
-        if task is None:
+        if task is None or task.status != "pending":   # 已被取消则跳过
             return
         p = dict(task.params)
         task.status = "queued"
@@ -254,9 +250,11 @@ async def _run_mock(task_id: int):
     steps = p.get("steps", 6)
     for s in range(1, steps + 1):
         await asyncio.sleep(0.45)
-        pct = round(s / steps * 95, 1)
         with SessionLocal() as db:
             task = db.get(Task, task_id)
+            if task.status in TERMINAL:                # 中途取消
+                return
+            pct = round(s / steps * 95, 1)
             task.status, task.progress = "running", pct
             task.step, task.total_steps = s, steps
             db.commit()

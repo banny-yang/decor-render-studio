@@ -16,6 +16,7 @@ import {
   Input,
   InputNumber,
   message,
+  Popconfirm,
   Progress,
   Row,
   Segmented,
@@ -36,8 +37,12 @@ const MODE_LABEL: Record<string, string> = {
   t2i: "文生图", img2img: "图生图", inpaint: "局部重绘", floorplan: "平面图渲染",
 };
 const STATUS_LABEL: Record<string, string> = {
-  pending: "排队中", queued: "已提交", running: "生成中", done: "已完成", error: "失败",
+  pending: "排队中", queued: "已提交", running: "生成中", done: "已完成",
+  error: "失败", cancelled: "已取消",
 };
+
+const fmtWait = (sec: number) =>
+  sec >= 90 ? `约 ${Math.round(sec / 60)} 分钟` : `约 ${Math.max(sec, 5)} 秒`;
 
 const CONTROLNETS = [
   { value: "mistoline_sdxl_fp16.safetensors", label: "线稿（CAD/手绘/草图，MistoLine）" },
@@ -114,7 +119,7 @@ export default function Workbench() {
 
   // SSE 订阅当前任务进度
   useEffect(() => {
-    if (!task || task.status === "done" || task.status === "error") return;
+    if (!task || ["done", "error", "cancelled"].includes(task.status)) return;
     const es = new EventSource(sseUrl(task.id));
     let poll: ReturnType<typeof setInterval> | null = null;
     const stop = () => {
@@ -124,7 +129,7 @@ export default function Workbench() {
     es.onmessage = (e) => {
       const t = JSON.parse(e.data) as Task;
       setTask(t);
-      if (t.status === "done" || t.status === "error") {
+      if (["done", "error", "cancelled"].includes(t.status)) {
         stop();
         refreshRecent();
       }
@@ -135,7 +140,7 @@ export default function Workbench() {
         const t = await api.tasks().then((list) => list.find((x) => x.id === task.id));
         if (t) {
           setTask(t);
-          if (t.status === "done" || t.status === "error") {
+          if (["done", "error", "cancelled"].includes(t.status)) {
             clearInterval(poll!);
             refreshRecent();
           }
@@ -468,11 +473,39 @@ export default function Workbench() {
           )}
 
           {task && task.status !== "done" && (
-            <Card size="small" title={`任务 #${task.id} · ${MODE_LABEL[task.mode]}`}>
-              <Progress percent={Math.round(task.progress)}
-                status={task.status === "error" ? "exception" : "active"} />
-              <Space>
-                <Tag color={task.status === "error" ? "red" : "processing"}>
+            <Card size="small" title={`任务 #${task.id} · ${MODE_LABEL[task.mode]}`}
+              extra={
+                !["done", "error", "cancelled"].includes(task.status) ? (
+                  <Popconfirm title="确定取消该任务？" onConfirm={async () => {
+                    try {
+                      const t = await api.cancelTask(task.id);
+                      setTask(t);
+                      refreshRecent();
+                    } catch (e: any) { message.error(e.message || "取消失败"); }
+                  }}>
+                    <Button size="small" danger>取消任务</Button>
+                  </Popconfirm>
+                ) : undefined
+              }>
+              {task.status === "pending" ? (
+                <Space direction="vertical" size={4}>
+                  <Space>
+                    <Tag color="orange">{STATUS_LABEL.pending}</Tag>
+                    <Typography.Text strong>
+                      队列第 {task.queue_position || 1} 位（全局 {task.queue_waiting || 1} 个任务等待）
+                    </Typography.Text>
+                  </Space>
+                  <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                    预计等待 {fmtWait(task.est_wait_sec || 30)} · 多用户共享 GPU，按提交顺序执行
+                  </Typography.Text>
+                </Space>
+              ) : (
+                <Progress percent={Math.round(task.progress)}
+                  status={task.status === "error" ? "exception" : "active"} />
+              )}
+              <Space style={{ marginTop: 8 }}>
+                <Tag color={task.status === "error" ? "red" :
+                            task.status === "cancelled" ? "default" : "processing"}>
                   {STATUS_LABEL[task.status]}
                 </Tag>
                 {task.total_steps > 0 && task.status === "running" && (
@@ -483,6 +516,9 @@ export default function Workbench() {
               </Space>
               {task.status === "error" && (
                 <Alert style={{ marginTop: 8 }} type="error" showIcon message={task.error || "生成失败"} />
+              )}
+              {task.status === "cancelled" && (
+                <Alert style={{ marginTop: 8 }} type="warning" showIcon message="任务已取消" />
               )}
             </Card>
           )}

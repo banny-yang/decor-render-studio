@@ -72,6 +72,18 @@ class ComfyUIClient:
         except httpx.HTTPError:
             return False
 
+    async def queue_delete(self, prompt_id: str):
+        """把任务从 ComfyUI 待执行队列移除。"""
+        self._ensure_init()
+        async with httpx.AsyncClient(timeout=15) as hc:
+            await hc.post(f"{self.base_url}/queue", json={"delete": [prompt_id]})
+
+    async def interrupt(self):
+        """中断当前正在执行的任务。"""
+        self._ensure_init()
+        async with httpx.AsyncClient(timeout=15) as hc:
+            await hc.post(f"{self.base_url}/interrupt")
+
     # ---- WebSocket ----
     def ws_url(self) -> str:
         self._ensure_init()
